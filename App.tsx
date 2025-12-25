@@ -6,6 +6,7 @@ import StepIndicator from './components/StepIndicator';
 import ChatBubble from './components/ChatBubble';
 import { INITIAL_GREETING_EN, INITIAL_GREETING_ZH, UI_TEXT } from './constants';
 import { nanoid } from 'nanoid';
+import { jsPDF } from 'jspdf';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<CreatorStep>(CreatorStep.Configuration);
@@ -15,7 +16,6 @@ const App: React.FC = () => {
   const [activeModel, setActiveModel] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // Consistency Memory State
   const [memoryBank, setMemoryBank] = useState<ConsistencyMemory>({
     plotPoints: [],
     characterStates: "",
@@ -102,7 +102,7 @@ const App: React.FC = () => {
         textToSend + systemContextLang, 
         targetModel, 
         messages,
-        memoryBank // Pass Memory Bank for Consistency
+        memoryBank
       );
       
       const aiMsg: Message = {
@@ -110,7 +110,6 @@ const App: React.FC = () => {
       };
       setMessages(prev => [...prev, aiMsg]);
       
-      // Background Task: Update Consistency Memory Bank if text is long
       if (responseText.length > 200 || currentStep >= 7) {
         generateConsistencySummary(responseText, memoryBank).then(updatedMemory => {
           setMemoryBank(updatedMemory);
@@ -137,19 +136,56 @@ const App: React.FC = () => {
     }
   };
 
-  // Remaining Handlers (handleKeyDown, handleExport, handleTestConnection, handleSaveSettings, etc.) are omitted for brevity as they remain mostly the same but are included in the final file structure.
-
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
 
-  const handleExport = () => {
-    const text = messages.map(m => `[${m.role.toUpperCase()}] (${new Date(m.timestamp).toLocaleString()}):\n${m.content}\n\n`).join('---');
-    const blob = new Blob([text], { type: 'text/markdown' });
+  const handleDownloadTxt = () => {
+    // Collect novel content (usually from Step 8 onwards, or any model response that looks like a story)
+    const novelContent = messages
+      .filter(m => m.role === 'model' && (m.step || 0) >= CreatorStep.ChapterWriting)
+      .map(m => m.content)
+      .join('\n\n' + '='.repeat(20) + '\n\n');
+
+    const fullExport = messages.map(m => `[${m.role.toUpperCase()}] (${new Date(m.timestamp).toLocaleString()}):\n${m.content}\n\n`).join('---');
+    
+    const blob = new Blob([novelContent || fullExport], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `AI_Novel_Memory_SOP_${new Date().toISOString().slice(0,10)}.md`;
+    a.download = `Novel_Draft_${new Date().toISOString().slice(0,10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadPdf = () => {
+    const doc = new jsPDF();
+    const margin = 10;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const novelContent = messages
+      .filter(m => m.role === 'model' && (m.step || 0) >= CreatorStep.ChapterWriting)
+      .map(m => m.content)
+      .join('\n\n');
+
+    const contentToPrint = novelContent || messages.filter(m => m.role === 'model').map(m => m.content).join('\n\n');
+    
+    // Split text into lines to fit page width
+    const lines = doc.splitTextToSize(contentToPrint, pageWidth - margin * 2);
+    
+    let y = 20;
+    doc.setFontSize(16);
+    doc.text(language === 'zh' ? "小说原稿" : "Novel Manuscript", margin, y);
+    y += 10;
+    doc.setFontSize(10);
+    
+    lines.forEach((line: string) => {
+      if (y > 280) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(line, margin, y);
+      y += 6;
+    });
+
+    doc.save(`Novel_Draft_${new Date().toISOString().slice(0,10)}.pdf`);
   };
 
   const handleTestConnection = async () => {
@@ -189,7 +225,6 @@ const App: React.FC = () => {
         onEditSetting={openEditModal}
       />
 
-      {/* Memory Status Component inside Sidebar or Header */}
       <div className="flex-1 flex flex-col h-full relative">
         <header className="h-16 absolute top-0 left-0 right-0 bg-white/80 backdrop-blur-md border-b border-white/20 shadow-sm flex items-center justify-between px-4 z-30 shrink-0">
           <div className="flex items-center gap-3">
@@ -198,7 +233,7 @@ const App: React.FC = () => {
             </button>
             <div className="flex flex-col">
               <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent tracking-tight">AI Novelist Studio</h1>
-              {memoryBank.plotPoints.length > 0 && (
+              {(memoryBank?.plotPoints?.length || 0) > 0 && (
                 <div className="flex items-center gap-1 text-[9px] text-green-600 font-bold uppercase tracking-wider animate-pulse">
                   <div className="w-1 h-1 bg-green-500 rounded-full"></div>
                   {language === 'zh' ? '一致性记忆已同步' : 'Consistency Sync Active'}
@@ -208,6 +243,24 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {currentStep === CreatorStep.ReviewAndPolish && (
+              <div className="flex gap-2 mr-4">
+                <button 
+                  onClick={handleDownloadTxt}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-white text-[11px] font-bold rounded-lg hover:bg-slate-700 transition-colors shadow-sm"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                  TXT
+                </button>
+                <button 
+                  onClick={handleDownloadPdf}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-[11px] font-bold rounded-lg hover:bg-indigo-600 transition-colors shadow-sm"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                  PDF
+                </button>
+              </div>
+            )}
             {isLoading && (
               <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-full">
                 <div className="flex space-x-1"><div className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></div><div className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></div><div className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></div></div>
@@ -255,19 +308,18 @@ const App: React.FC = () => {
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
               </button>
             </div>
-            <button onClick={() => handleSendMessage(language === 'zh' ? "开始" : "Start")} disabled={isLoading} className="flex flex-col items-center justify-center gap-1 w-16 py-4 rounded-2xl border bg-white text-slate-600 hover:text-primary hover:shadow-md transition-all shadow-sm">
+            <button onClick={() => handleSendMessage(language === 'zh' ? "继续下一步" : "Continue")} disabled={isLoading} className="flex flex-col items-center justify-center gap-1 w-16 py-4 rounded-2xl border bg-white text-slate-600 hover:text-primary hover:shadow-md transition-all shadow-sm">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" /></svg>
               <span className="text-[10px] font-bold hidden md:block">{t.continue}</span>
             </button>
           </div>
           <div className="text-center mt-3 flex justify-center items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${memoryBank.plotPoints.length > 0 ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-slate-300'}`}></span>
+            <span className={`w-1.5 h-1.5 rounded-full ${(memoryBank?.plotPoints?.length || 0) > 0 ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-slate-300'}`}></span>
             <p className="text-[11px] font-medium text-slate-400 tracking-wide uppercase">Gemini 3 Pro Engine • {t.step} {currentStep} / 9</p>
           </div>
         </footer>
       </div>
 
-      {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 transform transition-all">
@@ -280,12 +332,11 @@ const App: React.FC = () => {
                 <button onClick={handleTestConnection} disabled={isTesting || !apiKey} className="text-xs font-bold text-primary hover:bg-white border border-transparent hover:border-slate-200 px-3 py-1.5 rounded-lg transition-all">{t.testConn}</button>
               </div>
             </div>
-            <div className="flex gap-4 mt-10"><button onClick={() => setShowSettings(false)} className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-50">取消</button><button onClick={handleSaveSettings} className="flex-1 px-4 py-3 bg-primary text-white rounded-xl font-bold hover:bg-indigo-600 shadow-lg shadow-indigo-200 transition-all">保存</button></div>
+            <div className="flex gap-4 mt-10"><button onClick={() => setShowSettings(false)} className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-50">取消</button><button onClick={handleSaveSettings} className="flex-1 px-4 py-3 bg-primary text-white rounded-xl font-bold hover:bg-indigo-600 shadow-lg shadow-indigo-200 transition-all">保存配置</button></div>
           </div>
         </div>
       )}
 
-      {/* Edit Modal */}
       {editValueModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 transform transition-all">

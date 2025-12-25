@@ -77,9 +77,9 @@ export const generateConsistencySummary = async (newContent: string, currentMemo
     ${newContent}
     
     OLD MEMORY:
-    Plot: ${currentMemory.plotPoints.join('; ')}
-    Characters: ${currentMemory.characterStates}
-    Rules: ${currentMemory.worldRules.join('; ')}
+    Plot: ${currentMemory.plotPoints?.join('; ') || ""}
+    Characters: ${currentMemory.characterStates || ""}
+    Rules: ${currentMemory.worldRules?.join('; ') || ""}
     
     Output JSON format:
     {
@@ -91,13 +91,20 @@ export const generateConsistencySummary = async (newContent: string, currentMemo
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // Use flash for cost/speed on background tasks
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
     
     const text = response.text || "{}";
-    return JSON.parse(text) as ConsistencyMemory;
+    const parsed = JSON.parse(text);
+    
+    // Defensive normalization to prevent .length errors in UI
+    return {
+      plotPoints: Array.isArray(parsed.plotPoints) ? parsed.plotPoints : currentMemory.plotPoints || [],
+      characterStates: typeof parsed.characterStates === 'string' ? parsed.characterStates : currentMemory.characterStates || "",
+      worldRules: Array.isArray(parsed.worldRules) ? parsed.worldRules : currentMemory.worldRules || []
+    };
   } catch (e) {
     console.warn("Memory update failed, keeping old memory.", e);
     return currentMemory;
@@ -115,12 +122,12 @@ export const sendMessageToGemini = async (
 
   // Inject Consistency Memory into the prompt
   let augmentedPrompt = message;
-  if (memory && (memory.plotPoints.length > 0 || memory.characterStates)) {
+  if (memory && ((memory.plotPoints?.length || 0) > 0 || memory.characterStates)) {
     augmentedPrompt = `
 [CONSISTENCY REFERENCE]
-- PLOT: ${memory.plotPoints.join(' | ')}
-- CHARACTERS: ${memory.characterStates}
-- WORLD RULES: ${memory.worldRules.join(' | ')}
+- PLOT: ${memory.plotPoints?.join(' | ') || "None"}
+- CHARACTERS: ${memory.characterStates || "None"}
+- WORLD RULES: ${memory.worldRules?.join(' | ') || "None"}
 ---
 ${message}`;
   }
