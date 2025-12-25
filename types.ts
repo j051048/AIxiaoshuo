@@ -1,3 +1,4 @@
+
 export enum CreatorStep {
   Configuration = 1,
   CoreSetting = 2,
@@ -26,6 +27,12 @@ export interface NovelSettings {
   chapterWordCount: string;
 }
 
+export interface ConsistencyMemory {
+  plotPoints: string[];
+  characterStates: string;
+  worldRules: string[];
+}
+
 export const STEP_DESCRIPTIONS: Record<CreatorStep, string> = {
   [CreatorStep.Configuration]: "Configuration & Mode",
   [CreatorStep.CoreSetting]: "Core Settings",
@@ -49,3 +56,24 @@ export const STEP_DETAILS: Record<CreatorStep, string> = {
   [CreatorStep.ChapterWriting]: "Drafting (approx. 2300 words/chapter)",
   [CreatorStep.ReviewAndPolish]: "Quality Assurance & Editing",
 };
+
+// Upgraded to Gemini 3 Pro for all reasoning steps
+export const DEFAULT_STEP_MODELS: Record<CreatorStep, string> = {
+  [CreatorStep.Configuration]: 'gemini-3-pro-preview',
+  [CreatorStep.CoreSetting]: 'gemini-3-pro-preview',
+  [CreatorStep.ArchitectureAnalysis]: 'gemini-3-pro-preview',
+  [CreatorStep.OutlinePerfection]: 'gemini-3-pro-preview',
+  [CreatorStep.CharacterDesign]: 'gemini-3-pro-preview',
+  [CreatorStep.DetailedOutline]: 'gemini-3-pro-preview',
+  [CreatorStep.VolumePlanning]: 'gemini-3-pro-preview',
+  [CreatorStep.ChapterWriting]: 'gemini-3-pro-preview',
+  [CreatorStep.ReviewAndPolish]: 'gemini-3-pro-preview',
+};
+
+export const MODEL_OPTIONS = [
+  'gemini-3-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash-lite-latest',
+  'deepseek-reasoner',
+  'deepseek-chat'
+];
