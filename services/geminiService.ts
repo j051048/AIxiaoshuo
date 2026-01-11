@@ -1,72 +1,33 @@
 
-import { GoogleGenAI, Chat, HarmCategory, HarmBlockThreshold, Content } from "@google/genai";
 import { SYSTEM_INSTRUCTION } from "../constants";
 import { Message, ConsistencyMemory } from "../types";
 
-let chatSession: Chat | null = null;
-let genAI: GoogleGenAI | null = null;
-let currentModel: string | null = null;
-
-let customApiKey: string = ""; 
-let customBaseUrl: string = "https://vip.apiyi.com/"; 
+let customApiKey: string = "";
+let customBaseUrl: string = "https://vip.apiyi.com/v1beta";
 
 export const updateConfig = (apiKey: string, baseUrl?: string) => {
   customApiKey = apiKey || "";
-  if (baseUrl) customBaseUrl = baseUrl;
-  genAI = null;
-  chatSession = null;
-  currentModel = null;
-};
-
-const getGenAI = (): GoogleGenAI | null => {
-  const key = customApiKey || process.env.API_KEY;
-  if (!key) return null;
-  if (!genAI) {
-    const options: any = { apiKey: key };
-    if (customBaseUrl) options.rootUrl = customBaseUrl;
-    genAI = new GoogleGenAI(options);
+  if (baseUrl) {
+    // Remove trailing slash to ensure clean url construction
+    customBaseUrl = baseUrl.replace(/\/+$/, '');
   }
-  return genAI;
 };
 
-const initializeChat = async (modelName: string, history?: Content[]) => {
-  const ai = getGenAI();
-  if (!ai) throw new Error("API Key not configured");
-  
-  chatSession = ai.chats.create({
-    model: modelName,
-    history: history,
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      temperature: 0.7,
-      safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
-      ],
-    },
-  });
-  
-  currentModel = modelName;
-  return chatSession;
+const getHeaders = () => {
+  return {
+    'Content-Type': 'application/json'
+  };
 };
 
-const convertHistory = (messages: Message[]): Content[] => {
-  return messages
-    .filter(m => m.role !== 'system')
-    .map(m => ({
-      role: m.role,
-      parts: [{ text: m.content }]
-    }));
+const getUrl = (model: string) => {
+  return `${customBaseUrl}/models/${model}:generateContent?key=${customApiKey}`;
 };
 
 /**
  * Summarizes the latest content to update the Consistency Memory Bank.
  */
 export const generateConsistencySummary = async (newContent: string, currentMemory: ConsistencyMemory): Promise<ConsistencyMemory> => {
-  const ai = getGenAI();
-  if (!ai) return currentMemory;
+  if (!customApiKey) return currentMemory;
 
   const prompt = `
     You are a Consistency Auditor for a novel.
@@ -90,13 +51,22 @@ export const generateConsistencySummary = async (newContent: string, currentMemo
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: { responseMimeType: "application/json" }
+    const response = await fetch(getUrl('gemini-3-flash-preview'), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
     });
     
-    const text = response.text || "{}";
+    if (!response.ok) {
+        console.warn("Memory update API failed:", response.statusText);
+        return currentMemory;
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     const parsed = JSON.parse(text);
     
     // Defensive normalization to prevent .length errors in UI
@@ -117,8 +87,7 @@ export const sendMessageToGemini = async (
   historyMessages: Message[],
   memory?: ConsistencyMemory
 ): Promise<string> => {
-  const ai = getGenAI();
-  if (!ai) return "[System Error: API Configuration Missing]";
+  if (!customApiKey) return "[System Error: API Configuration Missing]";
 
   // Inject Consistency Memory into the prompt
   let augmentedPrompt = message;
@@ -132,31 +101,91 @@ export const sendMessageToGemini = async (
 ${message}`;
   }
 
-  if (!chatSession || currentModel !== model) {
-    const history = convertHistory(historyMessages);
-    await initializeChat(model, history);
-  }
+  // Convert history to REST API format
+  // Filter out system messages as they are not part of the conversation history for the model
+  const contents = historyMessages
+    .filter(m => m.role !== 'system')
+    .map(m => ({
+      role: m.role,
+      parts: [{ text: m.content }]
+    }));
 
-  if (!chatSession) return "[System Error: Session Initialization Failed]";
+  // Append the new user message
+  contents.push({
+    role: 'user',
+    parts: [{ text: augmentedPrompt }]
+  });
+
+  const body = {
+    contents: contents,
+    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    generationConfig: {
+      temperature: 0.7,
+    },
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+    ]
+  };
 
   try {
-    const result = await chatSession.sendMessage({ message: augmentedPrompt });
-    return result.text || "[Empty Response]";
+    const response = await fetch(getUrl(model), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMsg = `API Error ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error && errorJson.error.message) {
+            errorMsg += `: ${errorJson.error.message}`;
+        } else {
+            errorMsg += `: ${errorText}`;
+        }
+      } catch (e) {
+        errorMsg += `: ${errorText}`;
+      }
+      return `[${errorMsg}]`;
+    }
+
+    const data = await response.json();
+    
+    // Check for blocked content or empty response
+    if (data.promptFeedback?.blockReason) {
+        return `[Blocked: ${data.promptFeedback.blockReason}]`;
+    }
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return text || "[Empty Response]";
+
   } catch (error: any) {
     console.error("Gemini Error:", error);
-    return `[API Error] ${error.message}`;
+    return `[Network Error] ${error.message}`;
   }
 };
 
 export const testApiConnection = async (apiKey: string, baseUrl?: string): Promise<boolean> => {
   if (!apiKey) return false;
   try {
-    const options: any = { apiKey };
-    if (baseUrl) options.rootUrl = baseUrl;
-    const tempAI = new GoogleGenAI(options);
-    await tempAI.models.generateContent({ model: 'gemini-3-flash-preview', contents: 'ping' });
-    return true;
+    let urlBase = baseUrl ? baseUrl.replace(/\/+$/, '') : "https://vip.apiyi.com/v1beta";
+    const url = `${urlBase}/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'ping' }] }]
+      })
+    });
+    
+    return response.ok;
   } catch (e) {
+    console.error(e);
     return false;
   }
 };
