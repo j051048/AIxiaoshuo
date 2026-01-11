@@ -1,3 +1,4 @@
+
 import { CreatorStep } from "./types";
 
 export const SYSTEM_INSTRUCTION = `
@@ -75,6 +76,7 @@ export const UI_TEXT = {
     settings: "Settings",
     apiKey: "API Key",
     baseUrl: "Base URL (Optional)",
+    model: "Model",
     save: "Save",
     cancel: "Cancel",
     testConn: "Test Connection",
@@ -104,7 +106,7 @@ export const UI_TEXT = {
     // We will dynamic replace these in the component, but keep base structure
     stepDetails: {
       [CreatorStep.Configuration]: "Verify AI Config & DeepThinking Mode",
-      [CreatorStep.CoreSetting]: "Genre, Target Audience, Core Conflict",
+      [CreatorStep.CoreSetting]: "Verify AI Config & DeepThinking Mode",
       [CreatorStep.ArchitectureAnalysis]: "Selling Points, Logic, Protagonist Goals",
       [CreatorStep.OutlinePerfection]: "Logic Check, Consistency, Plot Holes",
       [CreatorStep.CharacterDesign]: "6-8 Characters (Bio, Motivation, Flaws)",
@@ -122,6 +124,7 @@ export const UI_TEXT = {
     settings: "设置",
     apiKey: "API Key (密钥)",
     baseUrl: "接口地址 (Base URL)",
+    model: "模型",
     save: "保存配置",
     cancel: "取消",
     testConn: "测试连接",

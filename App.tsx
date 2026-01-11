@@ -26,6 +26,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('https://vip.apiyi.com/');
+  const [preferredModel, setPreferredModel] = useState<string>('gemini-3-pro-preview');
 
   const [novelSettings, setNovelSettings] = useState<NovelSettings>({
     targetAudience: '22-35岁女性',
@@ -89,7 +90,8 @@ const App: React.FC = () => {
     if (!overrideText) setInput('');
     setIsLoading(true);
 
-    const targetModel = DEFAULT_STEP_MODELS[currentStep] || 'gemini-3-pro-preview';
+    // Use preferred model if set, otherwise fallback to default step logic or default
+    const targetModel = preferredModel || DEFAULT_STEP_MODELS[currentStep] || 'gemini-3-pro-preview';
     setActiveModel(targetModel);
 
     try {
@@ -327,6 +329,22 @@ const App: React.FC = () => {
             <div className="space-y-6">
               <div><label className="block text-sm font-semibold text-slate-700 mb-2">{t.apiKey}</label><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 transition-all" /></div>
               <div><label className="block text-sm font-semibold text-slate-700 mb-2">{t.baseUrl}</label><input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://..." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 transition-all" /></div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">{t.model}</label>
+                <div className="relative">
+                  <select 
+                    value={preferredModel} 
+                    onChange={(e) => setPreferredModel(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="gemini-3-pro-preview">gemini-3-pro-preview (Thinking)</option>
+                    <option value="gemini-3-flash-preview">gemini-3-flash-preview (Fast)</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  </div>
+                </div>
+              </div>
               <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <div className="text-xs text-slate-500 font-medium px-2">{testStatus === 'success' ? <span className="text-green-600">✓ {t.testSuccess}</span> : testStatus === 'failed' ? <span className="text-red-500">✕ {t.testFailed}</span> : isTesting ? t.testing : 'Ready'}</div>
                 <button onClick={handleTestConnection} disabled={isTesting || !apiKey} className="text-xs font-bold text-primary hover:bg-white border border-transparent hover:border-slate-200 px-3 py-1.5 rounded-lg transition-all">{t.testConn}</button>
